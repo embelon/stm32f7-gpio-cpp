@@ -58,10 +58,10 @@ template <GPIO_Mode mode, GPIO_Port port, uint16_t bit>
 class GPIO_bit;
 
 template <GPIO_Port port, uint16_t bit>
-class GPIO_bit_helper
+class GPIO_bit_helper final
 {
 private:
-  static_assert( (bit < 16), "Invalid GPIO bit number, outside [0-15] range." );	
+	static_assert( (bit < 16), "Invalid GPIO bit number, outside [0-15] range." );
 
 	GPIO_bit_helper() = delete;	
 		
@@ -93,7 +93,7 @@ private:
 
 // Default case => GPIO_Mode::input
 template <GPIO_Mode mode, GPIO_Port port, uint16_t bit>
-class GPIO_bit
+class GPIO_bit final
 {
 public:
 	GPIO_bit(GPIO_PullUpDown pu_pd)
@@ -108,12 +108,12 @@ public:
 	
 	operator bool()
 	{
-		return ( GPIO_bit_helper<port, bit>::reg()->IDR & (GPIO_IDR_ID0 << bit) ) ? 1 : 0;
+		return ( GPIO_bit_helper<port, bit>::reg()->IDR & (GPIO_IDR_ID0 << bit) ) ? true : false;
 	}
 };
 
 template <GPIO_Port port, uint16_t bit>
-class GPIO_bit<GPIO_Mode::analog, port, bit>
+class GPIO_bit<GPIO_Mode::analog, port, bit> final
 {
 public:
 	GPIO_bit()
@@ -128,7 +128,7 @@ public:
 };
 
 template <GPIO_Port port, uint16_t bit>
-class GPIO_bit<GPIO_Mode::output, port, bit>
+class GPIO_bit<GPIO_Mode::output, port, bit> final
 {
 public:
 	GPIO_bit(GPIO_Driver driver, GPIO_Speed speed, GPIO_PullUpDown pu_pd, bool value)
@@ -143,14 +143,14 @@ public:
 		GPIO_bit_helper<port, bit>::reg()->BSRR = value ? (GPIO_BSRR_BS0 << bit) : (GPIO_BSRR_BR0 << bit);
 	}
 
-	void operator=(bool value)
+	void operator=(bool value) &
 	{
 		GPIO_bit_helper<port, bit>::reg()->BSRR = value ? (GPIO_BSRR_BS0 << bit) : (GPIO_BSRR_BR0 << bit);		
 	}
 
 	operator bool()
 	{
-		return ( GPIO_bit_helper<port, bit>::reg()->IDR & (GPIO_IDR_ID0 << bit) ? 1 : 0 );
+		return ( GPIO_bit_helper<port, bit>::reg()->IDR & (GPIO_IDR_ID0 << bit) ? true : false );
 	}
 
 	inline void flip()
@@ -160,12 +160,12 @@ public:
 
 	bool outState()
 	{
-		return ( GPIO_bit_helper<port, bit>::reg()->ODR & (GPIO_ODR_OD0 << bit) ? 1 : 0 );
+		return ( GPIO_bit_helper<port, bit>::reg()->ODR & (GPIO_ODR_OD0 << bit) ? true : false );
 	}
 };
 
 template <GPIO_Port port, uint16_t bit>
-class GPIO_bit<GPIO_Mode::alternate, port, bit>
+class GPIO_bit<GPIO_Mode::alternate, port, bit> final
 {
 public:
 	GPIO_bit(GPIO_Driver driver, GPIO_Speed speed, GPIO_PullUpDown pu_pd, uint8_t function)
@@ -177,7 +177,7 @@ public:
 	{
 		GPIO_bit_helper<port, bit>::init(GPIO_Mode::alternate, driver, speed, pu_pd);
 
-		volatile GPIO_TypeDef * const reg = GPIO_bit_helper<port, bit>::reg();
+		volatile GPIO_TypeDef * const reg { GPIO_bit_helper<port, bit>::reg() };
 		constexpr uint32_t group = (bit >> 3) & 1;
 		constexpr uint32_t shift = (bit & 7) << 2;
 		reg->AFR[group] = (reg->AFR[group] & ~(GPIO_AFRL_AFRL0_Msk << shift)) | ((function & GPIO_AFRL_AFRL0_Msk) << shift);		
@@ -207,7 +207,7 @@ template <GPIO_Port port, uint16_t bitmask, GPIO_Mode mode>
 class GPIO_bits;
 
 template <GPIO_Port port, uint16_t bitmask>
-class GPIO_bits_helper
+class GPIO_bits_helper final
 {
 private:
 	GPIO_bits_helper() = delete;	
@@ -234,30 +234,7 @@ private:
 		reg()->MODER = (reg()->MODER & ~ConditionalExpandPattern::calculate(bitmask, GPIO_MODER_MODER0_Msk, 2))
 			| ConditionalExpandPattern::calculate(bitmask, static_cast<uint32_t>(mode), 2);
 	}
-/*	
-	static inline void init(GPIO_Mode mode, GPIO_Driver driver, GPIO_Speed speed, GPIO_PullUpDown pu_pd)
-	{
-		RCC->AHB1ENR |= RCC_AHB1ENR_GPIOAEN_Msk << portShift();		
-		
-		reg()->PUPDR = (reg()->PUPDR & ~ConditionalExpandNBitPattern<bitmask, GPIO_PUPDR_PUPDR0_Msk, 2>::value)
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_PullUpDown::up), 2>::value * (pu_pd == GPIO_PullUpDown::up ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_PullUpDown::down), 2>::value * (pu_pd == GPIO_PullUpDown::down ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_PullUpDown::floating), 2>::value * (pu_pd == GPIO_PullUpDown::floating ? 1 : 0));		
-		reg()->OSPEEDR = (reg()->OSPEEDR & ~ConditionalExpandNBitPattern<bitmask, GPIO_OSPEEDR_OSPEEDR0_Msk, 2>::value)
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Speed::low), 2>::value * (speed == GPIO_Speed::low ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Speed::medium), 2>::value * (speed == GPIO_Speed::medium ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Speed::high), 2>::value * (speed == GPIO_Speed::high ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Speed::very_high), 2>::value * (speed == GPIO_Speed::very_high ? 1 : 0));
-		reg()->OTYPER = (reg()->OTYPER & ~bitmask) 
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Driver::open_drain), 1>::value * (driver == GPIO_Driver::open_drain ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Driver::push_pull), 1>::value * (driver == GPIO_Driver::push_pull ? 1 : 0));
-		reg()->MODER = (reg()->OTYPER & ~ConditionalExpandNBitPattern<bitmask, GPIO_MODER_MODER0_Msk, 2>::value)
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Mode::input), 2>::value * (mode == GPIO_Mode::input ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Mode::analog), 2>::value * (mode == GPIO_Mode::analog ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Mode::output), 2>::value * (mode == GPIO_Mode::output ? 1 : 0))
-			| (ConditionalExpandNBitPattern<bitmask, static_cast<uint32_t>(GPIO_Mode::alternate), 2>::value * (mode == GPIO_Mode::alternate ? 1 : 0));
-	}
-*/	
+
   friend class GPIO_bits<port, bitmask, GPIO_Mode::input>;
 	friend class GPIO_bits<port, bitmask, GPIO_Mode::analog>;
 	friend class GPIO_bits<port, bitmask, GPIO_Mode::output>;
@@ -266,7 +243,7 @@ private:
 
 // Default case => GPIO_Mode::input
 template <GPIO_Port port, uint16_t bitmask, GPIO_Mode mode>
-class GPIO_bits
+class GPIO_bits final
 {
 public:
 	GPIO_bits(GPIO_PullUpDown pu_pd)
@@ -286,7 +263,7 @@ public:
 };
 
 template <GPIO_Port port, uint16_t bitmask>
-class GPIO_bits<port, bitmask, GPIO_Mode::analog>
+class GPIO_bits<port, bitmask, GPIO_Mode::analog> final
 {
 public:
 	GPIO_bits()
@@ -301,7 +278,7 @@ public:
 };
 
 template <GPIO_Port port, uint16_t bitmask>
-class GPIO_bits<port, bitmask, GPIO_Mode::output>
+class GPIO_bits<port, bitmask, GPIO_Mode::output> final
 {
 public:
 	GPIO_bits(GPIO_Driver driver, GPIO_Speed speed, GPIO_PullUpDown pu_pd, bool value)
@@ -316,7 +293,7 @@ public:
 		GPIO_bits_helper<port, bitmask>::reg()->BSRR = (static_cast<uint32_t>(value & bitmask) << GPIO_BSRR_BS0_Pos) | (static_cast<uint32_t>(~value & bitmask) << GPIO_BSRR_BR0_Pos);
 	}
 
-	void operator=(uint16_t value)
+	void operator=(uint16_t value) &
 	{
 		GPIO_bits_helper<port, bitmask>::reg()->BSRR = (static_cast<uint32_t>(value & bitmask) << GPIO_BSRR_BS0_Pos) | (static_cast<uint32_t>(~value & bitmask) << GPIO_BSRR_BR0_Pos);
 	}
@@ -333,7 +310,7 @@ public:
 };
 
 template <GPIO_Port port, uint16_t bitmask>
-class GPIO_bits<port, bitmask, GPIO_Mode::alternate>
+class GPIO_bits<port, bitmask, GPIO_Mode::alternate> final
 {
 public:
 	GPIO_bits(GPIO_Driver driver, GPIO_Speed speed, GPIO_PullUpDown pu_pd, uint8_t function)
@@ -345,7 +322,6 @@ public:
 	{
 		GPIO_bits_helper<port, bitmask>::init(GPIO_Mode::alternate, driver, speed, pu_pd);
 
-//		assert( (function < 16), "Invalid Alternate Function number" );		
 		volatile GPIO_TypeDef * const reg = GPIO_bits_helper<port, bitmask>::reg();
 		reg->AFR[0] = (reg->AFR[0] & ~ConditionalExpandPattern::calculate(bitmask & 0x00ff, 0x0f, 4))
 			| ConditionalExpandPattern::calculate(bitmask & 0x00ff, function & 0x0f, 4);
